@@ -1,0 +1,1781 @@
+#1
+import base64
+import io
+import os
+import textwrap
+import threading
+import uuid
+import webbrowser
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Tuple
+
+import matplotlib
+
+matplotlib.use("Agg")
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from flask import Flask, request, render_template_string
+from werkzeug.utils import secure_filename
+
+
+app = Flask(__name__)
+try:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+except NameError:
+    BASE_DIR = os.getcwd()
+UPLOAD_CACHE_DIR = os.path.join(BASE_DIR, "uploaded_datasets")
+app.static_folder = os.path.join(BASE_DIR, "static")
+TATA_LOGO_DATA_URI = "data:image/png;base64,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"
+
+
+app.jinja_env.globals["TATA_LOGO_DATA_URI"] = TATA_LOGO_DATA_URI
+
+# Large datasets are scored on a reproducible sample; the chosen split is
+# always applied to every row.  This avoids repeated full-data scans for every
+# possible threshold while preserving complete leaf assignments.
+MAX_SPLIT_EVALUATION_ROWS = 40_000
+MAX_NUMERIC_SPLIT_CANDIDATES = 40
+MAX_CATEGORICAL_SPLIT_CANDIDATES = 50
+MAX_FULL_RESCORING_CANDIDATES = 8
+MAX_DATASET_CACHE_BYTES = 500 * 1024 * 1024
+DATASET_FRAME_CACHE: Dict[str, pd.DataFrame] = {}
+
+
+@dataclass
+class RuleNode:
+    node_id: int
+    depth: int
+    row_indices: List[int]
+    conditions: List[str] = field(default_factory=list)
+    split_feature: Optional[str] = None
+    split_operator: Optional[str] = None
+    split_value: Optional[object] = None
+    missing_goes_left: bool = False
+    left: Optional["RuleNode"] = None
+    right: Optional["RuleNode"] = None
+
+    @property
+    def is_leaf(self) -> bool:
+        return self.left is None and self.right is None
+
+
+def clean_column_names(df: pd.DataFrame) -> pd.DataFrame:
+    cleaned = df.copy()
+    cleaned.columns = (
+        cleaned.columns.astype(str)
+        .str.strip()
+        .str.replace(r"\s+", "_", regex=True)
+        .str.replace(r"[^0-9a-zA-Z_]", "", regex=True)
+    )
+    return cleaned
+
+
+def save_uploaded_dataset(uploaded_file) -> str:
+    os.makedirs(UPLOAD_CACHE_DIR, exist_ok=True)
+    original_name = secure_filename(uploaded_file.filename)
+    _, extension = os.path.splitext(original_name)
+    extension = extension.lower()
+
+    if extension not in {".csv", ".xlsx", ".xls"}:
+        raise ValueError("Only CSV, XLSX, and XLS files are supported.")
+
+    dataset_id = f"{uuid.uuid4().hex}{extension}"
+    path = os.path.join(UPLOAD_CACHE_DIR, dataset_id)
+    uploaded_file.save(path)
+    return dataset_id
+
+
+def get_cached_dataset_path(dataset_id: str) -> str:
+    safe_dataset_id = secure_filename(dataset_id)
+    path = os.path.join(UPLOAD_CACHE_DIR, safe_dataset_id)
+    if not os.path.exists(path):
+        raise ValueError("Uploaded dataset was not found. Please upload the file again.")
+    return path
+
+
+def read_dataset(source) -> pd.DataFrame:
+    filename = source if isinstance(source, str) else source.filename
+    filename = filename.lower()
+
+    if filename.endswith(".csv"):
+        return pd.read_csv(source)
+    if filename.endswith((".xlsx", ".xls")):
+        return pd.read_excel(source)
+
+    raise ValueError("Only CSV, XLSX, and XLS files are supported.")
+
+
+def load_clean_dataset(dataset_id: str) -> pd.DataFrame:
+    cached = DATASET_FRAME_CACHE.get(dataset_id)
+    if cached is not None:
+        return cached
+
+    loaded = clean_column_names(read_dataset(get_cached_dataset_path(dataset_id)))
+    # Loading a 500k-row file repeatedly dominates the user-perceived wait.
+    # Retain only the current dataset, and only while it has a safe footprint.
+    if int(loaded.memory_usage(index=True, deep=True).sum()) <= MAX_DATASET_CACHE_BYTES:
+        DATASET_FRAME_CACHE.clear()
+        DATASET_FRAME_CACHE[dataset_id] = loaded
+    return loaded
+
+
+def get_dataset_columns(dataset_id: str) -> List[str]:
+    return load_clean_dataset(dataset_id).columns.tolist()
+
+
+def get_dataset_preview(dataset_id: str) -> str:
+    return load_clean_dataset(dataset_id).head(8).to_html(index=False, classes="table")
+
+
+def identify_variable_types(
+    df: pd.DataFrame,
+    target_col: str,
+    categorical_unique_threshold: int,
+) -> Tuple[List[str], List[str], List[str]]:
+    features = df.drop(columns=[target_col])
+    continuous_cols = []
+    numeric_cols = []
+    categorical_cols = []
+
+    for col in features.columns:
+        series = features[col]
+        is_numeric = pd.api.types.is_numeric_dtype(series)
+        is_bool = pd.api.types.is_bool_dtype(series)
+
+        if is_numeric or is_bool:
+            unique_count = series.nunique(dropna=True)
+            if is_bool or unique_count <= categorical_unique_threshold:
+                numeric_cols.append(col)
+            else:
+                continuous_cols.append(col)
+        else:
+            categorical_cols.append(col)
+
+    return continuous_cols, categorical_cols, numeric_cols
+
+
+def cap_outliers(
+    df: pd.DataFrame,
+    continuous_cols: List[str],
+    lower_cap_value: float,
+    upper_cap_value: float,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    capped = df.copy()
+    report_rows = []
+
+    lower_q = max(0.0, min(1.0, lower_cap_value / 100.0))
+    upper_q = max(0.0, min(1.0, upper_cap_value / 100.0))
+
+    for col in continuous_cols:
+        numeric_series = pd.to_numeric(capped[col], errors="coerce")
+        lower_cap = numeric_series.quantile(lower_q)
+        upper_cap = numeric_series.quantile(upper_q)
+
+        if pd.notna(lower_cap) and pd.notna(upper_cap) and lower_cap > upper_cap:
+            lower_cap, upper_cap = upper_cap, lower_cap
+
+        low_count = int((numeric_series < lower_cap).sum()) if pd.notna(lower_cap) else 0
+        high_count = int((numeric_series > upper_cap).sum()) if pd.notna(upper_cap) else 0
+        capped[col] = numeric_series.clip(lower=lower_cap, upper=upper_cap)
+
+        report_rows.append(
+            {
+                "variable": col,
+                "lower_percentile": lower_cap_value,
+                "upper_percentile": upper_cap_value,
+                "applied_lower_cap": round(float(lower_cap), 6) if pd.notna(lower_cap) else np.nan,
+                "applied_upper_cap": round(float(upper_cap), 6) if pd.notna(upper_cap) else np.nan,
+                "rows_capped_low": low_count,
+                "rows_capped_high": high_count,
+            }
+        )
+
+    if not report_rows:
+        report_rows.append(
+            {
+                "variable": "No continuous variables",
+                "lower_percentile": "",
+                "upper_percentile": "",
+                "applied_lower_cap": "",
+                "applied_upper_cap": "",
+                "rows_capped_low": "",
+                "rows_capped_high": "",
+            }
+        )
+
+    return capped, pd.DataFrame(report_rows)
+
+
+def make_table(values: List[str], column_name: str) -> str:
+    if not values:
+        values = ["None"]
+    return pd.DataFrame({column_name: values}).to_html(index=False, classes="table")
+
+
+def make_target_distribution_table(df: pd.DataFrame, target_col: str) -> str:
+    """Show every target class and its dataset-level row count."""
+    counts = df[target_col].astype(str).value_counts(dropna=False)
+    total = int(counts.sum())
+    rows = [
+        {
+            "target_class": class_name,
+            "row_count": int(count),
+            "row_share": f"{count / total:.1%}" if total else "0.0%",
+        }
+        for class_name, count in counts.items()
+    ]
+    return pd.DataFrame(rows).to_html(index=False, classes="table")
+
+
+def text_to_base64(value: str) -> str:
+    return base64.b64encode(value.encode("utf-8")).decode("utf-8")
+
+
+def infer_good_bad_class_indices(
+    class_names: List[str],
+    target_col: Optional[str] = None,
+    target_meaning: str = "auto",
+) -> Tuple[Optional[int], Optional[int]]:
+    def normalize_class_name(name: object) -> str:
+        """Make numeric labels such as 1, 1.0 and '1.0' equivalent."""
+        text = str(name).strip().lower().replace("_", " ")
+        try:
+            numeric = float(text)
+            if np.isfinite(numeric) and numeric.is_integer():
+                return str(int(numeric))
+        except (TypeError, ValueError):
+            pass
+        return text
+
+    normalized = [normalize_class_name(name) for name in class_names]
+
+    high_values = {"1", "yes", "y", "true", "survived", "alive", "approved", "success", "good"}
+    low_values = {"0", "no", "n", "false", "died", "dead", "rejected", "fail", "failed", "bad"}
+    high_index = next((idx for idx, name in enumerate(normalized) if name in high_values), None)
+    low_index = next((idx for idx, name in enumerate(normalized) if name in low_values), None)
+
+    if len(class_names) == 2 and high_index is not None and low_index is not None:
+        if target_meaning == "high_good":
+            return high_index, low_index
+        if target_meaning == "high_bad":
+            return low_index, high_index
+
+        # A target such as Titanic's ``Survived`` uses 1 for a favourable
+        # outcome.  Preserve a meaningful Bad Rate in Auto Detect mode rather
+        # than treating every numeric 1 as a bad outcome.
+        target_name = str(target_col or "").strip().lower().replace("_", " ")
+        good_target_terms = {"survived", "survival", "alive", "approved", "success", "good"}
+        bad_target_terms = {"bad", "default", "delinquen", "npa", "failure", "failed"}
+        if any(term in target_name for term in good_target_terms):
+            return high_index, low_index
+        if any(term in target_name for term in bad_target_terms):
+            return low_index, high_index
+
+    bad_terms = {"bad", "default", "defaulter", "fail", "failed", "npa", "yes", "y", "1", "true"}
+    good_terms = {"good", "non default", "no", "n", "0", "false", "performing"}
+    bad_index = next((idx for idx, name in enumerate(normalized) if name in bad_terms), None)
+    good_index = next((idx for idx, name in enumerate(normalized) if name in good_terms), None)
+
+    if len(class_names) == 2:
+        if bad_index is not None and good_index is None:
+            good_index = 1 - bad_index
+        elif good_index is not None and bad_index is None:
+            bad_index = 1 - good_index
+        elif good_index is None and bad_index is None:
+            good_index = 0
+            bad_index = 1
+
+    return good_index, bad_index
+
+
+def risk_band_from_bad_rate(bad_rate: Optional[float]) -> str:
+    if bad_rate is None:
+        return "N/A"
+    if bad_rate < 0.33:
+        return "Low Risk"
+    if bad_rate < 0.66:
+        return "Medium Risk"
+    return "High Risk"
+
+
+def gini_impurity(values: pd.Series) -> float:
+    if values.empty:
+        return 0.0
+    proportions = values.astype(str).value_counts(normalize=True)
+    return 1.0 - float((proportions * proportions).sum())
+
+
+def split_score(left_targets: pd.Series, right_targets: pd.Series) -> float:
+    total = len(left_targets) + len(right_targets)
+    if total == 0 or len(left_targets) == 0 or len(right_targets) == 0:
+        return -1.0
+
+    before = gini_impurity(pd.concat([left_targets, right_targets]))
+    after = (len(left_targets) / total) * gini_impurity(left_targets) + (
+        len(right_targets) / total
+    ) * gini_impurity(right_targets)
+    return before - after
+
+
+def split_candidate_thresholds(
+    values: pd.Series, max_candidates: int = MAX_NUMERIC_SPLIT_CANDIDATES
+) -> List[float]:
+    unique_values = np.sort(pd.to_numeric(values, errors="coerce").dropna().unique())
+    if len(unique_values) < 2:
+        return []
+
+    midpoints = (unique_values[:-1] + unique_values[1:]) / 2.0
+    if len(midpoints) <= max_candidates:
+        return [float(value) for value in midpoints]
+
+    positions = np.linspace(0, len(midpoints) - 1, max_candidates).round().astype(int)
+    return [float(midpoints[pos]) for pos in np.unique(positions)]
+
+
+def stratified_evaluation_sample(
+    subset: pd.DataFrame, target_col: str, max_rows: int = MAX_SPLIT_EVALUATION_ROWS
+) -> pd.DataFrame:
+    """Take a reproducible target-stratified sample for large split searches."""
+    if len(subset) <= max_rows:
+        return subset
+
+    class_counts = subset[target_col].value_counts(dropna=False)
+    if len(class_counts) > max_rows:
+        return subset.sample(n=max_rows, random_state=42)
+
+    raw_allocations = class_counts / len(subset) * max_rows
+    allocations = np.floor(raw_allocations).astype(int).clip(lower=1)
+    remaining = max_rows - int(allocations.sum())
+    fractions = (raw_allocations - np.floor(raw_allocations)).sort_values(ascending=False)
+    for class_value in fractions.index:
+        if remaining <= 0:
+            break
+        if allocations[class_value] < class_counts[class_value]:
+            allocations[class_value] += 1
+            remaining -= 1
+
+    # If minimum-one allocation exceeded the sample budget, reduce the largest
+    # groups first while retaining at least one row per class where possible.
+    while remaining < 0:
+        candidates = allocations[allocations > 1]
+        if candidates.empty:
+            break
+        class_value = candidates.idxmax()
+        allocations[class_value] -= 1
+        remaining += 1
+
+    samples = []
+    for class_value, count in allocations.items():
+        group = subset.loc[subset[target_col] == class_value]
+        samples.append(group.sample(n=min(int(count), len(group)), random_state=42))
+    return pd.concat(samples, axis=0)
+
+
+def best_split_for_column(df: pd.DataFrame, target_col: str, col: str, row_indices: List[int]):
+    subset = df.loc[row_indices, [col, target_col]]
+    if subset.empty or subset[col].nunique(dropna=True) < 2:
+        return None
+
+    evaluation_subset = stratified_evaluation_sample(subset, target_col)
+
+    series = evaluation_subset[col]
+    evaluation_target = evaluation_subset[target_col]
+    target_codes, target_classes = pd.factorize(evaluation_target, sort=False)
+    class_count = len(target_classes)
+
+    def sampled_split_score(left_mask: pd.Series) -> float:
+        """Fast Gini gain for a candidate split on the evaluation sample."""
+        left_values = left_mask.to_numpy(dtype=bool)
+        left_total = int(left_values.sum())
+        total = len(left_values)
+        right_total = total - left_total
+        if left_total == 0 or right_total == 0:
+            return -1.0
+
+        left_counts = np.bincount(target_codes[left_values], minlength=class_count)
+        total_counts = np.bincount(target_codes, minlength=class_count)
+        right_counts = total_counts - left_counts
+        before = 1.0 - float(np.square(total_counts / total).sum())
+        left_gini = 1.0 - float(np.square(left_counts / left_total).sum())
+        right_gini = 1.0 - float(np.square(right_counts / right_total).sum())
+        return before - ((left_total / total) * left_gini + (right_total / total) * right_gini)
+
+    if pd.api.types.is_numeric_dtype(series) or pd.api.types.is_bool_dtype(series):
+        numeric = pd.to_numeric(series, errors="coerce")
+        best = None
+        missing_mask = numeric.isna()
+        non_missing_mask = numeric.notna()
+        missing_idx = evaluation_subset.index[missing_mask].tolist()
+        non_missing_idx = evaluation_subset.index[non_missing_mask].tolist()
+
+        for threshold in split_candidate_thresholds(numeric):
+            left_base = numeric <= threshold
+            right_base = numeric > threshold
+            for missing_goes_left in [False, True]:
+                left_mask = left_base | (missing_mask if missing_goes_left else False)
+                right_mask = right_base | (False if missing_goes_left else missing_mask)
+                if not left_mask.any() or not right_mask.any():
+                    continue
+                score = sampled_split_score(left_mask)
+                if best is None or score > best["score"]:
+                    best = {
+                        "score": score,
+                        "feature": col,
+                        "operator": "<=",
+                        "value": float(threshold),
+                        "left_idx": [],
+                        "right_idx": [],
+                        "missing_goes_left": missing_goes_left,
+                    }
+
+        if best is None and missing_idx and non_missing_idx:
+            score = sampled_split_score(missing_mask)
+            best = {
+                "score": score,
+                "feature": col,
+                "operator": "is missing",
+                "value": "",
+                "left_idx": [],
+                "right_idx": [],
+                "missing_goes_left": True,
+            }
+
+        # Rebuild the selected split against all rows, not only the evaluation
+        # sample, so every input record is assigned to a final leaf.
+        if best is not None:
+            full_numeric = pd.to_numeric(subset[col], errors="coerce")
+            if best["operator"] == "is missing":
+                best["left_idx"] = subset.index[full_numeric.isna()].tolist()
+                best["right_idx"] = subset.index[full_numeric.notna()].tolist()
+            else:
+                left_base = subset.index[full_numeric <= best["value"]].tolist()
+                right_base = subset.index[full_numeric > best["value"]].tolist()
+                full_missing_idx = subset.index[full_numeric.isna()].tolist()
+                best["left_idx"] = left_base + (full_missing_idx if best["missing_goes_left"] else [])
+                best["right_idx"] = right_base + ([] if best["missing_goes_left"] else full_missing_idx)
+        return best
+
+    categorical = series.astype("object").where(series.notna(), "__MISSING__").astype(str)
+    counts = categorical.value_counts()
+    candidates = counts.index.tolist()[:MAX_CATEGORICAL_SPLIT_CANDIDATES]
+    best = None
+    for value in candidates:
+        left_mask = categorical == value
+        right_mask = categorical != value
+        if not left_mask.any() or not right_mask.any():
+            continue
+        score = sampled_split_score(left_mask)
+        if best is None or score > best["score"]:
+            best = {
+                "score": score,
+                "feature": col,
+                "operator": "==",
+                "value": value,
+                "left_idx": [],
+                "right_idx": [],
+                "missing_goes_left": value == "__MISSING__",
+            }
+    if best is not None:
+        full_categorical = subset[col].astype("object").where(subset[col].notna(), "__MISSING__").astype(str)
+        best["left_idx"] = subset.index[full_categorical == best["value"]].tolist()
+        best["right_idx"] = subset.index[full_categorical != best["value"]].tolist()
+    return best
+
+
+def format_value(value) -> str:
+    if isinstance(value, float):
+        if abs(value) >= 100:
+            return f"{value:.0f}"
+        if abs(value) >= 10:
+            return f"{value:.2f}".rstrip("0").rstrip(".")
+        return f"{value:.4f}".rstrip("0").rstrip(".")
+    return str(value)
+
+
+def build_rule_tree(
+    df: pd.DataFrame,
+    target_col: str,
+    feature_cols: List[str],
+    max_depth: int,
+    max_leaf_nodes: int,
+) -> RuleNode:
+    node_counter = {"value": 0}
+
+    def next_node_id() -> int:
+        node_counter["value"] += 1
+        return node_counter["value"]
+
+    def best_split(row_indices: List[int]):
+        """Find the strongest valid split for a single current leaf."""
+        if len(row_indices) < 4:
+            return None
+        candidates = []
+        for col in feature_cols:
+            candidate = best_split_for_column(df, target_col, col, row_indices)
+            if candidate:
+                candidates.append(candidate)
+
+        if not candidates:
+            return None
+
+        # Candidate discovery is sampled for speed on large data.  Re-score
+        # the strongest candidates on every row in this node before choosing
+        # the rule, keeping the final split faithful to the uploaded dataset.
+        shortlisted = sorted(candidates, key=lambda item: item["score"], reverse=True)[
+            :MAX_FULL_RESCORING_CANDIDATES
+        ]
+        for candidate in shortlisted:
+            candidate["score"] = split_score(
+                df.loc[candidate["left_idx"], target_col],
+                df.loc[candidate["right_idx"], target_col],
+            )
+        best = max(shortlisted, key=lambda item: item["score"])
+        if not best or best["score"] <= 0 or not best["left_idx"] or not best["right_idx"]:
+            return None
+        return best
+
+    def apply_split(node: RuleNode, best: dict) -> Tuple[RuleNode, RuleNode]:
+        node.split_feature = best["feature"]
+        node.split_operator = best["operator"]
+        node.split_value = best["value"]
+        node.missing_goes_left = best.get("missing_goes_left", False)
+
+        if best["operator"] == "is missing":
+            left_condition = f"{best['feature']} is missing"
+            right_condition = f"{best['feature']} is not missing"
+        elif best["operator"] == "<=":
+            left_condition = f"{best['feature']} <= {format_value(best['value'])}"
+            right_condition = f"{best['feature']} > {format_value(best['value'])}"
+            if best.get("missing_goes_left", False):
+                left_condition = f"{left_condition} OR {best['feature']} is missing"
+            else:
+                right_condition = f"{right_condition} OR {best['feature']} is missing"
+        elif best["operator"] == "==" and best["value"] == "__MISSING__":
+            left_condition = f"{best['feature']} is missing"
+            right_condition = f"{best['feature']} is not missing"
+        else:
+            right_condition = f"{best['feature']} != {format_value(best['value'])}"
+            left_condition = f"{best['feature']} {best['operator']} {format_value(best['value'])}"
+
+        node.left = RuleNode(
+            next_node_id(), node.depth + 1, best["left_idx"], node.conditions + [left_condition]
+        )
+        node.right = RuleNode(
+            next_node_id(), node.depth + 1, best["right_idx"], node.conditions + [right_condition]
+        )
+        return node.left, node.right
+
+    # Grow level by level.  The previous recursive implementation exhausted
+    # the leaf budget in the left subtree before visiting the right subtree.
+    # For depth=2 and leaves=4, this gives both depth-1 branches an equal
+    # opportunity to split, while still selecting the strongest splits first
+    # if the leaf limit cannot accommodate every candidate at a level.
+    root = RuleNode(next_node_id(), 0, df.index.tolist(), [])
+    leaf_count = 1
+    frontier = [root]
+
+    while frontier and leaf_count < max_leaf_nodes:
+        candidates = []
+        for node in frontier:
+            if node.depth >= max_depth:
+                continue
+            candidate = best_split(node.row_indices)
+            if candidate is not None:
+                candidates.append((node, candidate))
+
+        if not candidates:
+            break
+
+        available_splits = max_leaf_nodes - leaf_count
+        selected = sorted(candidates, key=lambda item: item[1]["score"], reverse=True)[:available_splits]
+        next_frontier = []
+        for node, candidate in selected:
+            left, right = apply_split(node, candidate)
+            next_frontier.extend([left, right])
+            leaf_count += 1
+
+        # Nodes that remained leaves due to the leaf cap cannot be expanded;
+        # the selected children form the next (deeper) level.
+        frontier = next_frontier
+
+    return root
+
+
+def iter_leaves(root: RuleNode) -> List[RuleNode]:
+    leaves = []
+
+    def walk(node: RuleNode) -> None:
+        if node.is_leaf:
+            leaves.append(node)
+            return
+        walk(node.left)
+        walk(node.right)
+
+    walk(root)
+    return leaves
+
+
+def parse_prune_node_ids(raw_value: str) -> List[int]:
+    node_ids = []
+    for part in raw_value.replace(";", ",").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if not part.isdigit():
+            raise ValueError("Prune Branch Node IDs must be comma-separated numbers.")
+        node_ids.append(int(part))
+    return sorted(set(node_ids))
+
+
+def prune_tree(root: RuleNode, prune_node_ids: List[int]) -> List[int]:
+    if not prune_node_ids:
+        return []
+    if root.node_id in prune_node_ids:
+        raise ValueError("Root node cannot be pruned. Please choose a branch node below the root.")
+
+    selected = set(prune_node_ids)
+    all_node_ids = set()
+    accounted_ids = set()
+    collapsed_node_ids = []
+
+    def collect_ids(node: RuleNode) -> List[int]:
+        ids = [node.node_id]
+        all_node_ids.add(node.node_id)
+        if not node.is_leaf:
+            ids.extend(collect_ids(node.left))
+            ids.extend(collect_ids(node.right))
+        return ids
+
+    def collapse_to_leaf(node: RuleNode) -> None:
+        node.left = None
+        node.right = None
+        node.split_feature = None
+        node.split_operator = None
+        node.split_value = None
+        collapsed_node_ids.append(node.node_id)
+
+    def walk(node: RuleNode) -> None:
+        if node.is_leaf:
+            return
+
+        left_selected = node.left.node_id in selected
+        right_selected = node.right.node_id in selected
+        if left_selected and right_selected:
+            accounted_ids.update([node.left.node_id, node.right.node_id])
+            collapse_to_leaf(node)
+            return
+
+        for child in (node.left, node.right):
+            if child.node_id in selected:
+                if child.is_leaf:
+                    continue
+                accounted_ids.update(collect_ids(child))
+                collapse_to_leaf(child)
+            else:
+                walk(child)
+
+    collect_ids(root)
+    walk(root)
+    missing = sorted(selected - all_node_ids)
+    if missing:
+        raise ValueError(f"Prune Branch Node ID(s) not found: {', '.join(map(str, missing))}.")
+
+    unpruned = sorted(selected - accounted_ids)
+    if unpruned:
+        raise ValueError(
+            "Terminal leaf node(s) can only be pruned by selecting both sibling leaves together: "
+            f"{', '.join(map(str, unpruned))}."
+        )
+    return sorted(set(collapsed_node_ids))
+
+
+def node_target_stats(
+    df: pd.DataFrame,
+    node: RuleNode,
+    target_col: str,
+    class_names: List[str],
+    good_index: Optional[int],
+    bad_index: Optional[int],
+    bad_rate_threshold: Optional[float] = None,
+) -> Dict[str, object]:
+    target = df.loc[node.row_indices, target_col].astype(str)
+    counts = target.value_counts()
+    total = int(len(target))
+    predicted = str(counts.index[0]) if total else "N/A"
+    good_rate = None
+    bad_rate = None
+
+    if good_index is not None and good_index < len(class_names) and total:
+        good_rate = float((target == class_names[good_index]).sum() / total)
+    if bad_index is not None and bad_index < len(class_names) and total:
+        bad_rate = float((target == class_names[bad_index]).sum() / total)
+
+    return {
+        "rows": total,
+        "predicted_class": predicted,
+        "good_rate": good_rate,
+        "bad_rate": bad_rate,
+        "risk_band": risk_band_from_bad_rate(bad_rate),
+        "distribution": {name: int(counts.get(name, 0)) for name in class_names},
+    }
+
+
+def portfolio_bad_rate(
+    df: pd.DataFrame, target_col: str, class_names: List[str], bad_index: Optional[int]
+) -> Optional[float]:
+    if bad_index is None or bad_index >= len(class_names) or df.empty:
+        return None
+    return float((df[target_col].astype(str) == class_names[bad_index]).mean())
+
+
+def make_leaf_summary_table(root: RuleNode, df: pd.DataFrame, target_col: str, target_meaning: str) -> str:
+    class_names = sorted(df[target_col].astype(str).unique().tolist())
+    good_index, bad_index = infer_good_bad_class_indices(class_names, target_col, target_meaning)
+    bad_rate_threshold = portfolio_bad_rate(df, target_col, class_names, bad_index)
+    total_rows = len(df)
+    rows = []
+
+    for leaf_number, leaf in enumerate(iter_leaves(root), start=1):
+        stats = node_target_stats(df, leaf, target_col, class_names, good_index, bad_index, bad_rate_threshold)
+        rows.append(
+            {
+                "leaf_node": leaf_number,
+                "risk_band": stats["risk_band"],
+                "predicted_class": stats["predicted_class"],
+                "rows": stats["rows"],
+                "row_share": f"{stats['rows'] / total_rows:.1%}" if total_rows else "0.0%",
+                "good_rate": "N/A" if stats["good_rate"] is None else f"{stats['good_rate']:.1%}",
+                "bad_rate": "N/A" if stats["bad_rate"] is None else f"{stats['bad_rate']:.1%}",
+            }
+        )
+
+    return pd.DataFrame(rows).to_html(index=False, classes="table")
+
+
+def rule_predictions(
+    root: RuleNode, df: pd.DataFrame, target_col: str, target_meaning: str = "auto"
+) -> Tuple[pd.Series, pd.Series]:
+    """Return actual targets and their corresponding generated leaf-rule predictions."""
+    actual_values = []
+    predicted_values = []
+
+    class_names = sorted(df[target_col].astype(str).unique().tolist())
+    good_index, bad_index = infer_good_bad_class_indices(class_names, target_col, target_meaning)
+    bad_rate_threshold = portfolio_bad_rate(df, target_col, class_names, bad_index)
+
+    for leaf in iter_leaves(root):
+        actual = df.loc[leaf.row_indices, target_col].astype(str)
+        if actual.empty:
+            continue
+        predicted_class = str(
+            node_target_stats(
+                df, leaf, target_col, class_names, good_index, bad_index, bad_rate_threshold
+            )["predicted_class"]
+        )
+        actual_values.extend(actual.tolist())
+        predicted_values.extend([predicted_class] * len(actual))
+
+    return pd.Series(actual_values, dtype="object"), pd.Series(predicted_values, dtype="object")
+
+
+def calculate_rule_metrics(
+    root: RuleNode, df: pd.DataFrame, target_col: str, target_meaning: str = "auto"
+) -> Tuple[float, float]:
+    """Return same-data accuracy and macro precision for the generated leaf rules."""
+    actual_series, predicted_series = rule_predictions(root, df, target_col, target_meaning)
+    if actual_series.empty:
+        return 0.0, 0.0
+
+    accuracy = float((actual_series == predicted_series).mean())
+    class_names = sorted(actual_series.unique().tolist())
+    precision_by_class = []
+    for class_name in class_names:
+        predicted_positive = predicted_series == class_name
+        true_positive = ((actual_series == class_name) & predicted_positive).sum()
+        precision_by_class.append(float(true_positive / predicted_positive.sum()) if predicted_positive.any() else 0.0)
+
+    return accuracy, float(np.mean(precision_by_class))
+
+
+def make_confusion_matrix_table(
+    root: RuleNode, df: pd.DataFrame, target_col: str, target_meaning: str = "auto"
+) -> str:
+    """Create an actual-versus-predicted count table for the generated rules."""
+    actual_series, predicted_series = rule_predictions(root, df, target_col, target_meaning)
+    class_names = sorted(set(actual_series.tolist()) | set(predicted_series.tolist()))
+    matrix = pd.crosstab(actual_series, predicted_series, rownames=["Actual"], colnames=["Predicted"])
+    matrix = matrix.reindex(index=class_names, columns=class_names, fill_value=0)
+    return matrix.reset_index().to_html(index=False, classes="table")
+
+
+def collect_leaf_paths(root: RuleNode, df: pd.DataFrame, target_col: str, target_meaning: str) -> List[dict]:
+    class_names = sorted(df[target_col].astype(str).unique().tolist())
+    good_index, bad_index = infer_good_bad_class_indices(class_names, target_col, target_meaning)
+    bad_rate_threshold = portfolio_bad_rate(df, target_col, class_names, bad_index)
+    total_rows = len(df)
+    rows = []
+
+    for leaf_number, leaf in enumerate(iter_leaves(root), start=1):
+        stats = node_target_stats(df, leaf, target_col, class_names, good_index, bad_index, bad_rate_threshold)
+        # Each branch may itself contain an OR condition for missing values.
+        # Parenthesize every branch before joining them so Excel/SQL/Python and
+        # the displayed path all use the same tree logic.
+        path_conditions = " AND ".join(f"({condition})" for condition in leaf.conditions)
+        rows.append(
+            {
+                "leaf_node": leaf_number,
+                "if_conditions": path_conditions if leaf.conditions else "All rows",
+                "final_decision": stats["predicted_class"],
+                "risk_band": stats["risk_band"],
+                "rows": stats["rows"],
+                "row_share": f"{stats['rows'] / total_rows:.1%}" if total_rows else "0.0%",
+                "good_rate": "N/A" if stats["good_rate"] is None else f"{stats['good_rate']:.1%}",
+                "bad_rate": "N/A" if stats["bad_rate"] is None else f"{stats['bad_rate']:.1%}",
+            }
+        )
+    return rows
+
+
+def export_rules_text(root: RuleNode, df: pd.DataFrame, target_col: str, target_meaning: str) -> str:
+    rows = collect_leaf_paths(root, df, target_col, target_meaning)
+    lines = ["Rule-based segmentation. No model training or train/test split is used.", ""]
+    for row in rows:
+        lines.append(
+            f"Leaf {row['leaf_node']}: IF {row['if_conditions']} THEN {row['final_decision']} "
+            f"({row['rows']} rows, {row['risk_band']})"
+        )
+    return "\n".join(lines)
+
+
+def split_condition(condition: str) -> Tuple[str, str, str]:
+    condition = condition.strip()
+    if condition.startswith("(") and condition.endswith(")"):
+        condition = condition[1:-1].strip()
+    if " is not missing" in condition:
+        return condition.replace(" is not missing", "").strip(), "is not missing", ""
+    if " is missing" in condition:
+        return condition.replace(" is missing", "").strip(), "is missing", ""
+    for operator in [" <= ", " > ", " == ", " != "]:
+        if operator in condition:
+            left, right = condition.split(operator, 1)
+            return left.strip(), operator.strip(), right.strip()
+    raise ValueError(f"Could not parse rule condition: {condition}")
+
+
+def python_condition(condition: str, df: pd.DataFrame) -> str:
+    condition = condition.strip()
+    if condition.startswith("(") and condition.endswith(")"):
+        condition = condition[1:-1].strip()
+    if " OR " in condition:
+        return "(" + " or ".join(python_condition(part, df) for part in condition.split(" OR ")) + ")"
+    column, operator, value = split_condition(condition)
+    if operator == "is missing":
+        return f"pd.isna(row.get({column!r}))"
+    if operator == "is not missing":
+        return f"pd.notna(row.get({column!r}))"
+    if column in df.columns and pd.api.types.is_numeric_dtype(df[column]):
+        return f"pd.to_numeric(row.get({column!r}), errors='coerce') {operator} {value}"
+    if operator == "==":
+        return f"str(row.get({column!r}, '')) == {value!r}"
+    if operator == "!=":
+        return f"str(row.get({column!r}, '')) != {value!r}"
+    return f"row.get({column!r}) {operator} {value}"
+
+
+def sql_condition(condition: str, df: pd.DataFrame) -> str:
+    condition = condition.strip()
+    if condition.startswith("(") and condition.endswith(")"):
+        condition = condition[1:-1].strip()
+    if " OR " in condition:
+        return "(" + " OR ".join(sql_condition(part, df) for part in condition.split(" OR ")) + ")"
+    column, operator, value = split_condition(condition)
+    if operator == "is missing":
+        return f"[{column}] IS NULL"
+    if operator == "is not missing":
+        return f"[{column}] IS NOT NULL"
+    sql_operator = "=" if operator == "==" else "<>" if operator == "!=" else operator
+    if column in df.columns and pd.api.types.is_numeric_dtype(df[column]):
+        sql_value = value
+    else:
+        sql_value = sql_literal(value)
+    return f"[{column}] {sql_operator} {sql_value}"
+
+
+def excel_condition(condition: str, df: pd.DataFrame) -> str:
+    condition = condition.strip()
+    if condition.startswith("(") and condition.endswith(")"):
+        condition = condition[1:-1].strip()
+    if " OR " in condition:
+        return "OR(" + ",".join(excel_condition(part, df) for part in condition.split(" OR ")) + ")"
+    column, operator, value = split_condition(condition)
+    if operator == "is missing":
+        return f"ISBLANK([@[{column}]])"
+    if operator == "is not missing":
+        return f"NOT(ISBLANK([@[{column}]]))"
+    excel_operator = "=" if operator == "==" else "<>" if operator == "!=" else operator
+    if column in df.columns and pd.api.types.is_numeric_dtype(df[column]):
+        excel_value = value
+    else:
+        excel_value = '"' + str(value).replace('"', '""') + '"'
+    return f"[@[{column}]]{excel_operator}{excel_value}"
+
+
+def export_tree_as_if_else(root: RuleNode, df: pd.DataFrame, target_col: str, target_meaning: str) -> str:
+    rows = collect_leaf_paths(root, df, target_col, target_meaning)
+    lines = [
+        "import pandas as pd",
+        "",
+        "def predict_from_rules(row):",
+        "    \"\"\"row is a dictionary-like object with the original feature names.\"\"\"",
+    ]
+    for idx, row in enumerate(rows):
+        prefix = "if" if idx == 0 else "elif"
+        condition = row["if_conditions"]
+        if condition == "All rows":
+            lines.append(f"    return {row['final_decision']!r}")
+            continue
+        parts = [python_condition(part, df) for part in condition.split(" AND ")]
+        lines.append(f"    {prefix} {' and '.join(parts)}:")
+        lines.append(f"        return {row['final_decision']!r}")
+    lines.append("    return None")
+    return "\n".join(lines)
+
+
+def sql_literal(value: str) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def export_tree_as_sql_case(root: RuleNode, df: pd.DataFrame, target_col: str, target_meaning: str) -> str:
+    rows = collect_leaf_paths(root, df, target_col, target_meaning)
+    lines = ["CASE"]
+    for row in rows:
+        condition = row["if_conditions"]
+        if condition == "All rows":
+            condition = "1 = 1"
+        else:
+            condition = " AND ".join(sql_condition(part, df) for part in condition.split(" AND "))
+        lines.append(f"    WHEN {condition} THEN {sql_literal(row['final_decision'])}")
+    lines.append("END AS prediction")
+    return "\n".join(lines)
+
+
+def export_tree_as_excel_if(root: RuleNode, df: pd.DataFrame, target_col: str, target_meaning: str) -> str:
+    rows = collect_leaf_paths(root, df, target_col, target_meaning)
+    formula = ""
+    close_count = 0
+
+    for row in rows:
+        condition = row["if_conditions"]
+        result = '"' + str(row["final_decision"]).replace('"', '""') + '"'
+        if condition == "All rows":
+            return "=" + result
+
+        excel_condition_text = ",".join(excel_condition(part, df) for part in condition.split(" AND "))
+
+        formula += f"IF(AND({excel_condition_text}),{result},"
+        close_count += 1
+
+    formula += '""' + (")" * close_count)
+    return "=" + formula
+
+
+def tree_to_base64_png(root: RuleNode, df: pd.DataFrame, target_col: str, target_meaning: str) -> str:
+    class_names = sorted(df[target_col].astype(str).unique().tolist())
+    good_index, bad_index = infer_good_bad_class_indices(class_names, target_col, target_meaning)
+    bad_rate_threshold = portfolio_bad_rate(df, target_col, class_names, bad_index)
+    total_rows = max(1, len(df))
+    positions = {}
+    leaf_order = {"value": 0}
+
+    def assign(node: RuleNode, depth: int) -> float:
+        if node.is_leaf:
+            x = leaf_order["value"]
+            leaf_order["value"] += 1
+        else:
+            left_x = assign(node.left, depth + 1)
+            right_x = assign(node.right, depth + 1)
+            x = (left_x + right_x) / 2
+        positions[node.node_id] = (x, -depth)
+        return x
+
+    assign(root, 0)
+    leaf_count = max(1, leaf_order["value"])
+    depth = max(node.depth for node in iter_leaves(root))
+    # Multi-class leaves can contain several class-count lines.  Give each
+    # leaf enough horizontal space so their boxes never overlap.
+    fig_width = max(14, min(48, leaf_count * 5.2))
+    fig_height = max(9, min(30, depth * 3.6 + 5))
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height), facecolor="#F4F9FE")
+
+    def walk_edges(node: RuleNode) -> None:
+        if node.is_leaf:
+            return
+        x, y = positions[node.node_id]
+        for child, label, color in [
+            (node.left, "Yes", "#16835B"),
+            (node.right, "No", "#D71920"),
+        ]:
+            cx, cy = positions[child.node_id]
+            ax.plot([x, cx], [y - 0.15, cy + 0.2], color="#003F7D", linewidth=1.4, alpha=0.7)
+            ax.text(
+                (x + cx) / 2,
+                (y + cy) / 2,
+                label,
+                ha="center",
+                va="center",
+                fontsize=9,
+                fontweight="bold",
+                color=color,
+                bbox={"boxstyle": "round,pad=0.25", "facecolor": "#FFFFFF", "edgecolor": color},
+            )
+            walk_edges(child)
+
+    def node_label(node: RuleNode) -> Tuple[str, str, str]:
+        stats = node_target_stats(df, node, target_col, class_names, good_index, bad_index, bad_rate_threshold)
+        share = stats["rows"] / total_rows
+        bad_class_label = (
+            class_names[bad_index]
+            if bad_index is not None and bad_index < len(class_names)
+            else "N/A"
+        )
+        bad_rate_text = "N/A" if stats["bad_rate"] is None else format(stats["bad_rate"], ".1%")
+        if node.is_leaf:
+            decision_role = "Segment"
+            if good_index is not None and bad_index is not None:
+                decision_role = (
+                    "Bad" if stats["predicted_class"] == class_names[bad_index] else "Good"
+                )
+            class_count_lines = [
+                (
+                    f"{class_name}: {stats['distribution'][class_name]} "
+                    f"({stats['distribution'][class_name] / stats['rows']:.1%})"
+                )
+                for class_name in class_names
+            ] if stats["rows"] else ["N/A"]
+            class_counts = "\n".join(textwrap.fill(line, width=34) for line in class_count_lines)
+            text = (
+                f"Node {node.node_id}\nLeaf\n{stats['risk_band']}\nRows: {stats['rows']} ({share:.1%})\n"
+                f"Decision: {stats['predicted_class']} ({decision_role})\n"
+                f"Class mix:\n{class_counts}\n"
+                f"Bad ({bad_class_label}): {bad_rate_text}"
+            )
+            edge = "#D71920" if stats["risk_band"] == "High Risk" else "#005AA9"
+            fill = "#FFE5E7" if stats["risk_band"] == "High Risk" else "#DDEEFF"
+            return text, fill, edge
+
+        if node.split_operator == "is missing" or node.split_value == "__MISSING__":
+            rule = f"{node.split_feature} is missing?"
+        else:
+            rule = f"{node.split_feature} {node.split_operator} {format_value(node.split_value)}"
+        text = (
+            f"Node {node.node_id}\nQuestion\n{textwrap.fill(rule, width=24)}\n"
+            f"Rows: {stats['rows']} ({share:.1%})\n"
+            f"Bad ({bad_class_label}): {bad_rate_text}"
+        )
+        return text, "#E7F3FF", "#003F7D"
+
+    walk_edges(root)
+
+    def walk_nodes(node: RuleNode) -> None:
+        x, y = positions[node.node_id]
+        text, fill, edge = node_label(node)
+        ax.text(
+            x,
+            y,
+            text,
+            ha="center",
+            va="center",
+            fontsize=9.5,
+            linespacing=1.3,
+            bbox={"boxstyle": "round,pad=0.55", "facecolor": fill, "edgecolor": edge, "linewidth": 1.6},
+            zorder=3,
+        )
+        if not node.is_leaf:
+            walk_nodes(node.left)
+            walk_nodes(node.right)
+
+    walk_nodes(root)
+    ax.set_title("Rule-Based Segmentation Tree", fontsize=18, fontweight="bold", color="#003F7D", pad=18)
+    ax.text(
+        0.5,
+        0.985,
+        "No model training is performed. Counts are actual rows from the uploaded dataset after missing target rows are removed.",
+        transform=ax.transAxes,
+        ha="center",
+        va="top",
+        fontsize=10.5,
+        color="#65758B",
+    )
+    ax.set_xlim(-0.75, leaf_count - 0.25)
+    ax.set_ylim(-depth - 0.8, 0.85)
+    ax.axis("off")
+
+    buffer = io.BytesIO()
+    fig.tight_layout()
+    fig.savefig(buffer, format="png", dpi=180, bbox_inches="tight", facecolor=fig.get_facecolor())
+    plt.close(fig)
+    buffer.seek(0)
+    return base64.b64encode(buffer.read()).decode("utf-8")
+
+
+def validate_tree_limits(max_depth: int, max_leaf_nodes: int) -> None:
+    if max_depth < 1:
+        raise ValueError("Max tree depth must be at least 1.")
+    if max_leaf_nodes < 2:
+        raise ValueError("Max leaf nodes must be at least 2.")
+    if max_leaf_nodes > 2 ** max_depth:
+        raise ValueError(
+            f"Max leaf nodes cannot be {max_leaf_nodes} when max tree depth is {max_depth}. "
+            f"With depth {max_depth}, the tree can have at most {2 ** max_depth} leaf nodes."
+        )
+
+
+def analyze_and_render(form):
+    dataset_id = form.get("dataset_id", "").strip()
+    if not dataset_id:
+        raise ValueError("Please upload a dataset first.")
+
+    original_df = load_clean_dataset(dataset_id)
+    original_row_count = len(original_df)
+    target_col = form.get("target_col", "").strip()
+    target_meaning = form.get("target_meaning", "auto").strip() or "auto"
+    feature_cols = [col for col in form.getlist("feature_cols") if col]
+    lower_cap_value = float(form.get("lower_cap_value", 2.5))
+    upper_cap_value = float(form.get("upper_cap_value", 97.5))
+    max_depth = int(form.get("max_depth", 4))
+    max_leaf_nodes = int(form.get("max_leaf_nodes", 12))
+    categorical_unique_threshold = int(form.get("categorical_unique_threshold", 10))
+    prune_node_ids_raw = form.get("prune_node_ids", "").strip()
+    prune_node_ids = parse_prune_node_ids(prune_node_ids_raw)
+
+    validate_tree_limits(max_depth, max_leaf_nodes)
+
+    if target_col not in original_df.columns:
+        raise ValueError(f"Target '{target_col}' not found.")
+
+    df = original_df.dropna(subset=[target_col]).copy()
+    rows_removed_missing_target = original_row_count - len(df)
+    if df.empty:
+        raise ValueError("No rows remain after removing blank target values.")
+
+    if feature_cols:
+        valid_feature_cols = [c for c in feature_cols if c in df.columns and c != target_col]
+    else:
+        valid_feature_cols = [c for c in df.columns if c != target_col]
+
+    if not valid_feature_cols:
+        raise ValueError("Please select at least one valid feature column.")
+
+    df = df[[target_col] + valid_feature_cols]
+    continuous_cols, categorical_cols, numeric_cols = identify_variable_types(df, target_col, categorical_unique_threshold)
+    df, outlier_report = cap_outliers(df, continuous_cols, lower_cap_value, upper_cap_value)
+    root = build_rule_tree(df, target_col, valid_feature_cols, max_depth, max_leaf_nodes)
+    pruned_node_ids = prune_tree(root, prune_node_ids)
+    rule_accuracy, rule_precision = calculate_rule_metrics(root, df, target_col, target_meaning)
+    leaf_row_total = sum(len(leaf.row_indices) for leaf in iter_leaves(root))
+    unique_leaf_rows = len({idx for leaf in iter_leaves(root) for idx in leaf.row_indices})
+    if leaf_row_total != len(df) or unique_leaf_rows != len(df):
+        raise ValueError(
+            "Segmentation row audit failed: leaf rows do not exactly match analyzed rows. "
+            "Please check duplicate dataframe indexes or malformed input data."
+        )
+    rules = export_rules_text(root, df, target_col, target_meaning)
+    if_else_rules = export_tree_as_if_else(root, df, target_col, target_meaning)
+    sql_case_rules = export_tree_as_sql_case(root, df, target_col, target_meaning)
+    excel_if_rules = export_tree_as_excel_if(root, df, target_col, target_meaning)
+
+    row_audit = pd.DataFrame(
+        [
+            {"stage": "Original uploaded dataset", "rows": original_row_count},
+            {"stage": "Rows removed because target is blank", "rows": rows_removed_missing_target},
+            {"stage": "Rows analyzed by rule engine", "rows": len(df)},
+            {"stage": "Rows assigned to final leaves", "rows": leaf_row_total},
+            {"stage": "Unique rows assigned to final leaves", "rows": unique_leaf_rows},
+            {"stage": "Rows used for model training", "rows": 0},
+            {"stage": "Rows used for train/test split", "rows": 0},
+        ]
+    )
+
+    return {
+        "mode_note": "Rule-based segmentation using the uploaded data. Predicted Class is the actual majority target class within each leaf; Bad Rate and Risk Band describe that leaf's risk profile. Accuracy and macro precision are apparent (same-data) rule scores; no train/test split is used.",
+        "accuracy": f"{rule_accuracy:.1%} (same data)",
+        "precision": f"{rule_precision:.1%} (macro, same data)",
+        "model_gini": "N/A - no trained model",
+        "tree_depth": str(max_depth),
+        "leaf_nodes": str(len(iter_leaves(root))),
+        "pruned_nodes": "None" if not pruned_node_ids else ", ".join(map(str, pruned_node_ids)),
+        "dataset_id": dataset_id,
+        "target_col": target_col,
+        "target_meaning": target_meaning,
+        "feature_cols": valid_feature_cols,
+        "lower_cap_value": lower_cap_value,
+        "upper_cap_value": upper_cap_value,
+        "max_depth_value": max_depth,
+        "max_leaf_nodes_value": max_leaf_nodes,
+        "categorical_unique_threshold": categorical_unique_threshold,
+        "prune_node_ids_raw": prune_node_ids_raw,
+        "encoded_features": len(valid_feature_cols),
+        "row_audit_table": row_audit.to_html(index=False, classes="table"),
+        "tree_image": tree_to_base64_png(root, df, target_col, target_meaning),
+        "rules": rules,
+        "rules_b64": text_to_base64(rules),
+        "if_else_rules": if_else_rules,
+        "if_else_rules_b64": text_to_base64(if_else_rules),
+        "sql_case_rules": sql_case_rules,
+        "sql_case_rules_b64": text_to_base64(sql_case_rules),
+        "excel_if_rules": excel_if_rules,
+        "excel_if_rules_b64": text_to_base64(excel_if_rules),
+        "outlier_table": outlier_report.to_html(index=False, classes="table"),
+        "target_distribution_table": make_target_distribution_table(df, target_col),
+        "continuous_table": make_table(continuous_cols, "Variable"),
+        "categorical_table": make_table(categorical_cols, "Variable"),
+        "numeric_table": make_table(numeric_cols, "Variable"),
+        "leaf_summary_table": make_leaf_summary_table(root, df, target_col, target_meaning),
+        "confusion_matrix_table": make_confusion_matrix_table(root, df, target_col, target_meaning),
+        "leaf_paths_table": pd.DataFrame(collect_leaf_paths(root, df, target_col, target_meaning)).to_html(
+            index=False, classes="table"
+        ),
+    }
+
+
+PAGE_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rule-Based Decision Tree Analyzer</title>
+  <style>
+    :root {
+      --tata-blue: #0074B7;
+      --tata-deep-blue: #004A7C;
+      --tata-peacock: #008C7E;
+      --tata-mint: #E1F7EF;
+      --tata-lime: #49B96E;
+      --tata-red: #D71920;
+      --bg: #F3F8F8;
+      --panel: #FFFFFF;
+      --ink: #172B4D;
+      --muted: #5E7184;
+      --line: #D4E5E3;
+      --shadow: 0 10px 30px rgba(0, 74, 124, 0.08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+      background: radial-gradient(circle at 8% 0%, #D7F6E8 0, transparent 28%), radial-gradient(circle at 94% 8%, #DCEFFA 0, transparent 25%), linear-gradient(135deg, #F9FCFB 0%, var(--bg) 52%, #EDF7FA 100%);
+      color: var(--ink);
+      line-height: 1.5;
+    }
+    header {
+      position: relative;
+      overflow: hidden;
+      background: linear-gradient(115deg, #00547A 0%, var(--tata-deep-blue) 43%, var(--tata-peacock) 100%);
+      color: white;
+      padding: 34px max(28px, calc((100vw - 1180px) / 2));
+      border-bottom: 4px solid var(--tata-lime);
+    }
+    header::after {
+      content: "";
+      position: absolute;
+      width: 340px;
+      height: 340px;
+      right: -70px;
+      top: -200px;
+      border: 42px solid rgba(177, 245, 213, 0.17);
+      border-radius: 50%;
+    }
+    .header-content { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 24px; max-width: 1180px; margin: 0 auto; }
+    .header-brand { min-width: 0; }
+    header h1 { margin: 0 0 7px; font-size: clamp(25px, 3vw, 32px); letter-spacing: -0.5px; }
+    header p { margin: 0; color: #D9EEF7; font-size: 15px; }
+    .brand-wordmark { display: flex; flex-direction: column; align-items: flex-end; padding-left: 20px; border-left: 1px solid rgba(255, 255, 255, .35); line-height: .82; text-shadow: 0 2px 8px rgba(0, 40, 74, .20); }
+    .wordmark-tata { color: #2A6EB5; font-family: Arial, Helvetica, sans-serif; font-size: 18px; font-weight: 900; letter-spacing: 1px; }
+    .wordmark-mutual { margin-top: 6px; color: #26A95A; font-family: Georgia, "Times New Roman", serif; font-size: 22px; font-weight: 700; font-style: italic; letter-spacing: -1.1px; }
+    .wordmark-fund { color: #008FAE; }
+    main { max-width: 1240px; margin: 0 auto; padding: 34px 24px 48px; }
+    section, form.panel {
+      background: var(--panel);
+      border: 1px solid rgba(0, 127, 116, .16);
+      border-radius: 14px;
+      padding: 22px;
+      margin-bottom: 20px;
+      box-shadow: var(--shadow);
+      transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease;
+    }
+    section:hover, form.panel:hover { border-color: rgba(0, 127, 116, .28); box-shadow: 0 14px 34px rgba(0, 74, 124, .10); }
+    h2 { margin: 0 0 16px; font-size: 20px; color: var(--tata-peacock); letter-spacing: -0.2px; }
+    h2::after { content: ""; display: block; width: 42px; height: 4px; margin-top: 9px; background: linear-gradient(90deg, var(--tata-lime), var(--tata-blue)); border-radius: 4px; }
+    h3 { margin: 20px 0 10px; font-size: 15px; color: var(--tata-deep-blue); }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+    label { display: block; font-size: 13px; font-weight: 700; color: #28435F; margin-bottom: 7px; }
+    input, select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #C8D7E5;
+      border-radius: 8px;
+      font: inherit;
+      font-size: 14px;
+      color: var(--ink);
+      background: #FFFFFF;
+      transition: border-color .18s ease, box-shadow .18s ease;
+    }
+    input:hover, select:hover { border-color: #77B6AD; }
+    input:focus, select:focus { outline: none; border-color: var(--tata-peacock); box-shadow: 0 0 0 3px rgba(0, 127, 116, .14); }
+    input[type="file"] { padding: 11px; border: 1px dashed #79BBAE; background: #F4FBF8; color: #1B645D; cursor: pointer; }
+    input[type="file"]::file-selector-button { margin-right: 12px; padding: 7px 10px; border: 0; border-radius: 6px; background: #DDF3EC; color: #006D64; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+    .feature-options {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      max-height: 208px;
+      overflow-y: auto;
+      padding: 10px;
+      border: 1px solid #C8DCD9;
+      border-radius: 9px;
+      background: linear-gradient(145deg, #FCFFFE, #EFF9F6);
+      box-shadow: inset 0 1px 2px rgba(0, 74, 124, .04);
+    }
+    .feature-selector-bar { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; }
+    .feature-count { margin-right: auto; color: var(--tata-peacock); font-size: 12px; font-weight: 700; }
+    .feature-action {
+      margin: 0;
+      padding: 5px 9px;
+      border: 1px solid #A8D4CC;
+      border-radius: 6px;
+      background: white;
+      color: #006D64;
+      box-shadow: none;
+      font-size: 12px;
+    }
+    .feature-action:hover { background: #DDF3EC; box-shadow: none; }
+    .feature-option {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      margin: 0;
+      padding: 8px 9px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      color: #214C58;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .feature-option:hover, .feature-option.is-selected { background: linear-gradient(100deg, #DDF8EC, #E5F6FC); border-color: #82CDBB; }
+    .feature-option:hover { transform: translateX(2px); }
+    .feature-option.is-selected { color: #005C55; box-shadow: 0 3px 8px rgba(0, 140, 126, .12); }
+    .feature-option input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var(--tata-peacock); flex: 0 0 auto; }
+    .feature-option span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    button, .download {
+      display: inline-block;
+      border: 0;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--tata-blue) 0%, var(--tata-peacock) 58%, var(--tata-lime) 130%);
+      color: white;
+      padding: 10px 16px;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      margin: 4px 7px 4px 0;
+      box-shadow: 0 4px 10px rgba(0, 103, 165, .20);
+      transition: transform .18s ease, box-shadow .18s ease, filter .18s ease;
+    }
+    button:hover, .download:hover { transform: translateY(-2px) scale(1.01); filter: saturate(1.08) brightness(1.04); box-shadow: 0 9px 18px rgba(0, 103, 165, .27); }
+    button:active, .download:active { transform: translateY(0) scale(.99); }
+    button:focus-visible, .download:focus-visible { outline: 3px solid rgba(0, 127, 116, .45); outline-offset: 2px; }
+    .secondary { background: #63788A; box-shadow: 0 4px 10px rgba(63, 82, 99, .16); }
+    .danger { background: var(--tata-red); }
+    .notice, .error {
+      padding: 13px 15px;
+      margin-bottom: 16px;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+    .notice { border-left: 4px solid var(--tata-lime); background: linear-gradient(90deg, var(--tata-mint), #EAF8FC); color: #17534E; }
+    .error { border-left: 4px solid var(--tata-red); background: #FFF0F1; color: #9F1B22; }
+    .table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 9px; box-shadow: inset 0 1px 0 rgba(0, 127, 116, .04); }
+    table.table, .dataframe { width: 100%; border-collapse: collapse; font-size: 13px; background: white; }
+    table.table th, table.table td, .dataframe th, .dataframe td { border-bottom: 1px solid #E2EAF1; padding: 10px 12px; text-align: left; }
+    table.table th, .dataframe th { background: linear-gradient(180deg, #EAF6F2, #E2F1EE); color: var(--tata-deep-blue); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; }
+    table.table tr:last-child td, .dataframe tr:last-child td { border-bottom: 0; }
+    table.table tbody tr:nth-child(even), .dataframe tbody tr:nth-child(even) { background: #FAFCFE; }
+    table.table tbody tr:hover, .dataframe tbody tr:hover { background: #F0F9F7; }
+    pre { white-space: pre-wrap; background: #082B4C; color: #EAF5FA; padding: 16px; border: 1px solid #164B72; border-radius: 10px; overflow-x: auto; font-size: 13px; line-height: 1.55; }
+    .tree-zoom { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 10px; }
+    .tree-zoom input { position: absolute; opacity: 0; pointer-events: none; }
+    .tree-zoom label { border: 1px solid var(--line); border-radius: 8px; padding: 7px 11px; background: #FFFFFF; color: var(--tata-deep-blue); font-size: 13px; font-weight: 700; cursor: pointer; }
+    .tree-zoom input:checked + label { background: var(--tata-blue); border-color: var(--tata-blue); color: #FFFFFF; }
+    .tree-scroll { overflow: auto; max-height: 78vh; border: 1px solid var(--line); border-radius: 10px; background: white; }
+    img.tree { display: block; width: 100%; max-width: 100%; height: auto; background: white; padding: 5px; transform-origin: top left; }
+    #tree-zoom-125:checked ~ .tree-scroll img.tree { width: 125%; max-width: none; }
+    #tree-zoom-150:checked ~ .tree-scroll img.tree { width: 150%; max-width: none; }
+    #tree-zoom-200:checked ~ .tree-scroll img.tree { width: 200%; max-width: none; }
+    .tree-hint { margin: 0 0 10px; color: var(--muted); font-size: 13px; }
+    .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+    .metric { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; padding: 15px 13px 13px; background: linear-gradient(145deg, #FFFFFF, #F0FAF7); transition: transform .18s ease, box-shadow .18s ease; }
+    .metric:hover { transform: translateY(-2px); box-shadow: 0 8px 16px rgba(0, 127, 116, .12); }
+    .metric::before { content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 4px; background: linear-gradient(90deg, var(--tata-blue), var(--tata-peacock), var(--tata-lime)); }
+    .metric:nth-child(2)::before, .metric:nth-child(4)::before { background: linear-gradient(90deg, var(--tata-lime), var(--tata-peacock)); }
+    .metric strong { display: block; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .45px; margin-bottom: 5px; }
+    @media (max-width: 800px) {
+      header { padding: 26px 20px; }
+      .header-content { align-items: flex-start; }
+      .brand-wordmark { padding-left: 12px; }
+      .wordmark-tata { font-size: 14px; }
+      .wordmark-mutual { font-size: 16px; }
+      main { padding: 20px 14px 32px; }
+      section, form.panel { padding: 17px; border-radius: 11px; }
+      .grid, .metrics, .feature-options { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-content">
+      <div class="header-brand">
+        <h1>Tata Mutual Fund Decision Tree</h1>
+        <p>Dataset-independent workflow: uploaded data is segmented, not used to train a model.</p>
+      </div>
+      <div class="brand-wordmark" aria-label="Tata Mutual Fund">
+        <span class="wordmark-tata">TATA</span>
+        <span class="wordmark-mutual">mutual <span class="wordmark-fund">fund</span></span>
+      </div>
+    </div>
+  </header>
+  <main>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+    <form class="panel" method="post" enctype="multipart/form-data">
+      <h2>Upload Dataset</h2>
+      <input type="hidden" name="action" value="load_columns">
+      <input type="file" name="dataset" accept=".csv,.xlsx,.xls">
+      <div style="margin-top:12px;">
+        <button type="submit">Load Columns</button>
+      </div>
+    </form>
+
+    {% if columns %}
+    <form class="panel" method="post">
+      <input type="hidden" name="action" value="analyze">
+      <input type="hidden" name="dataset_id" value="{{ dataset_id }}">
+      <h2>Configure Segmentation</h2>
+      <div class="notice">No model is trained. The target is used only to summarize each segment's distribution and risk rate.</div>
+      <div class="grid">
+        <div>
+          <label for="target-search">Search Target Variable</label>
+          <input type="search" id="target-search" placeholder="Search target column…" autocomplete="off">
+          <label for="target-col" style="margin-top:10px;">Target Column</label>
+          <select name="target_col" id="target-col" required style="margin-top:8px;">
+            {% for col in columns %}<option value="{{ col }}">{{ col }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label>Target Meaning</label>
+          <select name="target_meaning">
+            <option value="auto">Auto Detect</option>
+            <option value="high_bad">1 / Yes / Higher class is Bad</option>
+            <option value="high_good">1 / Yes / Higher class is Good</option>
+          </select>
+        </div>
+        <div>
+          <label for="feature-search">Search Predictor Variables</label>
+          <input type="search" id="feature-search" placeholder="Search predictor columns…" autocomplete="off">
+          <label style="margin-top:10px;">Feature Columns</label>
+          <div class="feature-selector-bar">
+            <span id="feature-count" class="feature-count">0 selected</span>
+            <button class="feature-action" type="button" id="select-all-features">Select all</button>
+            <button class="feature-action" type="button" id="clear-features">Clear</button>
+          </div>
+          <div class="feature-options" role="group" aria-label="Feature Columns" style="margin-top:8px;">
+            {% for col in columns %}
+            <label class="feature-option"><input type="checkbox" name="feature_cols" value="{{ col }}"><span>{{ col }}</span></label>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="grid">
+          <div>
+            <label>Max Depth</label>
+            <input type="number" name="max_depth" value="4" min="1" max="8">
+          </div>
+          <div>
+            <label>Max Leaf Nodes</label>
+            <input type="number" name="max_leaf_nodes" value="12" min="2" max="64">
+          </div>
+          <div>
+            <label>Lower Cap Percentile</label>
+            <input type="number" step="0.1" name="lower_cap_value" value="2.5" min="0" max="100">
+          </div>
+          <div>
+            <label>Upper Cap Percentile</label>
+            <input type="number" step="0.1" name="upper_cap_value" value="97.5" min="0" max="100">
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:14px;">
+        <button type="submit">Analyze Without Training</button>
+        <button class="secondary" name="action" value="reset" type="submit">Reset</button>
+      </div>
+    </form>
+
+    <section>
+      <h2>Dataset Preview</h2>
+      <div class="table-scroll">{{ dataset_preview|safe }}</div>
+    </section>
+    {% endif %}
+
+    {% if result %}
+    <section>
+      <h2>Results</h2>
+      <div class="notice">{{ result.mode_note }}</div>
+      <div class="metrics">
+        <div class="metric"><strong>Accuracy</strong>{{ result.accuracy }}</div>
+        <div class="metric"><strong>Precision</strong>{{ result.precision }}</div>
+        <div class="metric"><strong>Gini</strong>{{ result.model_gini }}</div>
+        <div class="metric"><strong>Depth Setting</strong>{{ result.tree_depth }}</div>
+        <div class="metric"><strong>Leaf Nodes</strong>{{ result.leaf_nodes }}</div>
+        <div class="metric"><strong>Pruned Nodes</strong>{{ result.pruned_nodes }}</div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Target Class Distribution</h2>
+      <div class="notice">All observed values in the selected target column, before segmentation.</div>
+      <div class="table-scroll">{{ result.target_distribution_table|safe }}</div>
+    </section>
+
+    <section>
+      <h2>Row Audit</h2>
+      <div class="table-scroll">{{ result.row_audit_table|safe }}</div>
+    </section>
+
+    <section>
+      <h2>Segmentation Tree</h2>
+      <p class="tree-hint">The diagram opens fitted to the panel. Choose a zoom level when you want to inspect node details.</p>
+      <div class="tree-zoom" aria-label="Tree zoom">
+        <input id="tree-zoom-fit" type="radio" name="tree_zoom" checked>
+        <label for="tree-zoom-fit">Fit</label>
+        <input id="tree-zoom-125" type="radio" name="tree_zoom">
+        <label for="tree-zoom-125">125%</label>
+        <input id="tree-zoom-150" type="radio" name="tree_zoom">
+        <label for="tree-zoom-150">150%</label>
+        <input id="tree-zoom-200" type="radio" name="tree_zoom">
+        <label for="tree-zoom-200">200%</label>
+        <div class="tree-scroll"><img class="tree" src="data:image/png;base64,{{ result.tree_image }}" alt="Rule tree"></div>
+      </div>
+      <form class="panel" method="post" style="margin-top:14px;">
+        <input type="hidden" name="action" value="analyze">
+        <input type="hidden" name="dataset_id" value="{{ result.dataset_id }}">
+        <input type="hidden" name="target_col" value="{{ result.target_col }}">
+        <input type="hidden" name="target_meaning" value="{{ result.target_meaning }}">
+        {% for col in result.feature_cols %}
+        <input type="hidden" name="feature_cols" value="{{ col }}">
+        {% endfor %}
+        <input type="hidden" name="max_depth" value="{{ result.max_depth_value }}">
+        <input type="hidden" name="max_leaf_nodes" value="{{ result.max_leaf_nodes_value }}">
+        <input type="hidden" name="lower_cap_value" value="{{ result.lower_cap_value }}">
+        <input type="hidden" name="upper_cap_value" value="{{ result.upper_cap_value }}">
+        <input type="hidden" name="categorical_unique_threshold" value="{{ result.categorical_unique_threshold }}">
+        <h3>Prune Tree</h3>
+        <label>Prune Branch Node IDs</label>
+        <input type="text" name="prune_node_ids" value="{{ result.prune_node_ids_raw }}" placeholder="Example: 3, 7">
+        <div style="margin-top:12px;">
+          <button type="submit">Load Pruned Tree</button>
+        </div>
+      </form>
+    </section>
+
+    <section>
+      <h2>Leaf Summary</h2>
+      <div class="table-scroll">{{ result.leaf_summary_table|safe }}</div>
+    </section>
+
+    <section>
+      <h2>Same-Data Confusion Matrix</h2>
+      <div class="notice">Rows are actual target classes; columns are the classes predicted by the generated leaf rules.</div>
+      <div class="table-scroll">{{ result.confusion_matrix_table|safe }}</div>
+    </section>
+
+    <section>
+      <h2>Leaf Paths</h2>
+      <div class="table-scroll">{{ result.leaf_paths_table|safe }}</div>
+    </section>
+
+    <section>
+      <h2>Variable Types</h2>
+      <div class="grid">
+        <div><h3>Continuous</h3><div class="table-scroll">{{ result.continuous_table|safe }}</div></div>
+        <div><h3>Categorical</h3><div class="table-scroll">{{ result.categorical_table|safe }}</div></div>
+        <div><h3>Numeric Category</h3><div class="table-scroll">{{ result.numeric_table|safe }}</div></div>
+        <div><h3>Outlier Capping</h3><div class="table-scroll">{{ result.outlier_table|safe }}</div></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Exports</h2>
+      <a class="download" download="rules.txt" href="data:text/plain;base64,{{ result.rules_b64 }}">Download Rules</a>
+      <a class="download" download="rules.py" href="data:text/plain;base64,{{ result.if_else_rules_b64 }}">Download Python</a>
+      <a class="download" download="rules.sql" href="data:text/plain;base64,{{ result.sql_case_rules_b64 }}">Download SQL</a>
+      <a class="download" download="rules_excel.txt" href="data:text/plain;base64,{{ result.excel_if_rules_b64 }}">Download Excel IF</a>
+      <h3>Plain Rules</h3><pre>{{ result.rules }}</pre>
+      <h3>Python If/Else</h3><pre>{{ result.if_else_rules }}</pre>
+      <h3>SQL Case</h3><pre>{{ result.sql_case_rules }}</pre>
+      <h3>Excel IF</h3><pre>{{ result.excel_if_rules }}</pre>
+    </section>
+    {% endif %}
+  </main>
+  <script>
+    (function () {
+      const featureBoxes = Array.from(document.querySelectorAll('input[name="feature_cols"]'));
+      const featureSearch = document.getElementById('feature-search');
+      const targetSearch = document.getElementById('target-search');
+      const targetSelect = document.getElementById('target-col');
+      const featureCount = document.getElementById('feature-count');
+      const selectAllButton = document.getElementById('select-all-features');
+      const clearButton = document.getElementById('clear-features');
+      if (!featureCount || !selectAllButton || !clearButton) return;
+
+      function updateFeatureSelection() {
+        const selected = featureBoxes.filter((box) => box.checked).length;
+        featureCount.textContent = selected + ' selected';
+        featureBoxes.forEach((box) => box.closest('.feature-option').classList.toggle('is-selected', box.checked));
+      }
+
+      function filterFeatureOptions() {
+        const query = featureSearch ? featureSearch.value.trim().toLowerCase() : '';
+        featureBoxes.forEach((box) => {
+          const option = box.closest('.feature-option');
+          const columnName = option.querySelector('span').textContent.toLowerCase();
+          option.style.display = !query || columnName.includes(query) ? '' : 'none';
+        });
+      }
+
+      featureBoxes.forEach((box) => box.addEventListener('change', updateFeatureSelection));
+      selectAllButton.addEventListener('click', () => {
+        featureBoxes.forEach((box) => {
+          if (box.closest('.feature-option').style.display !== 'none') box.checked = true;
+        });
+        updateFeatureSelection();
+      });
+      clearButton.addEventListener('click', () => { featureBoxes.forEach((box) => { box.checked = false; }); updateFeatureSelection(); });
+
+      if (featureSearch) {
+        featureSearch.addEventListener('input', filterFeatureOptions);
+      }
+
+      if (targetSearch && targetSelect) {
+        const allTargetOptions = Array.from(targetSelect.options).map((option) => ({
+          value: option.value,
+          text: option.text,
+        }));
+        targetSearch.addEventListener('input', () => {
+          const selected = targetSelect.value;
+          const query = targetSearch.value.trim().toLowerCase();
+          const matches = allTargetOptions.filter((option) => option.text.toLowerCase().includes(query));
+          targetSelect.replaceChildren(...matches.map((option) => {
+            const element = document.createElement('option');
+            element.value = option.value;
+            element.text = option.text;
+            return element;
+          }));
+          if (matches.some((option) => option.value === selected)) targetSelect.value = selected;
+        });
+      }
+      filterFeatureOptions();
+      updateFeatureSelection();
+    }());
+  </script>
+</body>
+</html>
+"""
+
+
+@app.route("/", methods=["GET", "POST"])
+def index():
+    error = None
+    result = None
+    columns = None
+    dataset_id = None
+    dataset_preview = None
+
+    if request.method == "POST":
+        action = request.form.get("action", "load_columns")
+        if action == "reset":
+            return render_template_string(PAGE_TEMPLATE, error=None, result=None, columns=None, dataset_id=None)
+
+        if action == "load_columns":
+            uploaded_file = request.files.get("dataset")
+            if not uploaded_file or uploaded_file.filename == "":
+                error = "Please upload a CSV or Excel dataset."
+            else:
+                try:
+                    dataset_id = save_uploaded_dataset(uploaded_file)
+                    columns = get_dataset_columns(dataset_id)
+                    dataset_preview = get_dataset_preview(dataset_id)
+                except Exception as exc:
+                    error = str(exc)
+
+        elif action == "analyze":
+            dataset_id = request.form.get("dataset_id", "").strip()
+            try:
+                columns = get_dataset_columns(dataset_id)
+                dataset_preview = get_dataset_preview(dataset_id)
+                result = analyze_and_render(request.form)
+            except Exception as exc:
+                if dataset_id:
+                    try:
+                        columns = columns or get_dataset_columns(dataset_id)
+                        dataset_preview = dataset_preview or get_dataset_preview(dataset_id)
+                    except Exception:
+                        pass
+                error = str(exc)
+        else:
+            error = "Unknown action. Please upload the dataset again."
+
+    return render_template_string(
+        PAGE_TEMPLATE,
+        error=error,
+        result=result,
+        columns=columns,
+        dataset_id=dataset_id,
+        dataset_preview=dataset_preview,
+    )
+
+
+def open_chrome_browser(url: str) -> None:
+    chrome_paths = [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+    ]
+
+    try:
+        webbrowser.get("chrome").open_new(url)
+        return
+    except webbrowser.Error:
+        pass
+
+    for chrome_path in chrome_paths:
+        if os.path.exists(chrome_path):
+            webbrowser.register("chrome", None, webbrowser.BackgroundBrowser(chrome_path))
+            webbrowser.get("chrome").open_new(url)
+            return
+
+    webbrowser.open_new(url)
+
+
+def open_browser_after_start(port: int) -> None:
+    url = f"http://localhost:{port}"
+    threading.Timer(1.5, open_chrome_browser, args=(url,)).start()
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", "5000"))
+    open_browser_after_start(port)
+    app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False)
